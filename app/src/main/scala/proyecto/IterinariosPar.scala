@@ -1,17 +1,17 @@
 package proyecto
-
-import common._
-
+import scala.concurrent._
+import ExecutionContext.Implicits.global
 import scala.collection.parallel.CollectionConverters._
 import scala.collection.parallel.ParSeq
 import scala.concurrent.{ExecutionContext, Future}
-
 
 class ItinerariosPar() {
   type aeropuertos = List[Aeropuerto]
   type vuelos = List[Vuelo]
   val objitinerarioSeq = new Itinerario()
 
+  private val objitinerarioSeq = new Itinerario()
+  
   def itinerariosPar(vuelos: List[Vuelo], aeropuertos:List[Aeropuerto])(implicit ec: ExecutionContext): (String, String) => Future[List[List[Vuelo]]] = {
     //Recibe una lista de vuelos y aeropuertos
     //Retorna una función que recibe los codigos de dos aeropuertos
@@ -24,19 +24,56 @@ class ItinerariosPar() {
 
     generarItinerarios
   }
+  
+  def itinerariosTiempoPar(vuelos: List[Vuelo], aeropuertos: List[Aeropuerto]): (String, String) => Future[List[List[Vuelo]]] = {
+    def calcularDuracionVuelo(vuelo: Vuelo, aeropuertos: List[Aeropuerto]): Int = {
+      val aeropuertoOrigen = aeropuertos.find(_.Cod == vuelo.Org).get
+      val aeropuertoDestino = aeropuertos.find(_.Cod == vuelo.Dst).get
 
-  def itinerariosTiempo(vuelos: List[Vuelo], aeropuertos:List[Aeropuerto]): (String, String) => List[Itinerario] = {
-    //Recibe vuelos, una lista de vuelos y aeropuertos, una lista de aeropuertos y retorna una funcion que recibe dos strings y retorna una lista de itinerarios
-    //Devuelve una función que recibe c1 y c2, códigos de aeropuertos
-    //y devuelve una función que devuelve los tres (si los hay) itinerarios que minimizan el tiempo total de viaje
-    (cod1:String, cod2:String)=> List[Itinerario]()
+      val salidaEnMinutos = (vuelo.HS * 60) + vuelo.MS
+      val llegadaEnMinutos = (vuelo.HL * 60) + vuelo.ML
+
+      val diferenciaGMT = (aeropuertoDestino.GMT - aeropuertoOrigen.GMT) / 100
+      val diferenciaGMTEnMinutos = (diferenciaGMT * 60).toInt
+
+      val duracionEnMinutos = llegadaEnMinutos - (salidaEnMinutos + diferenciaGMTEnMinutos)
+
+      if (duracionEnMinutos < 0) duracionEnMinutos + 1440 else duracionEnMinutos
+    }
+
+    def calcularTiempoEspera(vuelo1: Vuelo, vuelo2: Vuelo): Int = {
+      val llegadaEnMinutos = (vuelo1.HL * 60) + vuelo1.ML
+      val salidaEnMinutos = (vuelo2.HS * 60) + vuelo2.MS
+
+      val esperaEnMinutos = salidaEnMinutos - llegadaEnMinutos
+
+      if (esperaEnMinutos < 0) esperaEnMinutos + 1440 else esperaEnMinutos
+    }
+
+    def calcularTiempoTotal(itinerario: List[Vuelo], aeropuertos: List[Aeropuerto]): Int = {
+      val tiemposDeVuelo = itinerario.map(vuelo => calcularDuracionVuelo(vuelo, aeropuertos))
+      val tiemposDeEspera = itinerario.zip(itinerario.tail).map { case (v1, v2) => calcularTiempoEspera(v1, v2) }
+      tiemposDeVuelo.sum + tiemposDeEspera.sum
+    }
+
+    def minimoTiempo(cod1: String, cod2: String): Future[List[List[Vuelo]]] = {
+      val itinerariosFuturo = Future {
+        itinerarioObj.itinerarios(vuelos, aeropuertos)(cod1, cod2)
+      }
+
+      itinerariosFuturo.map { itinerarios =>
+        itinerarios.par.map(it => (it, calcularTiempoTotal(it, aeropuertos)))
+          .toList
+          .sortBy(_._2)
+          .take(3)
+          .map(_._1)
+      }
+    }
+
+    minimoTiempo
   }
 
-
-
-  def itinerariosEscalasPar(vuelos: List[Vuelo], aeropuertos: List[Aeropuerto])
-                           (implicit ec: ExecutionContext): (String, String) => Future[List[List[Vuelo]]] = {
-
+  def itinerariosEscalasPar(vuelos: List[Vuelo], aeropuertos: List[Aeropuerto])(implicit ec: ExecutionContext): (String, String) => Future[List[List[Vuelo]]] = {
     def minimoEscalas(cod1: String, cod2: String): Future[List[List[Vuelo]]] = {
 
       def calcularEscalas(itinerario: List[Vuelo]): Int = {
@@ -80,28 +117,26 @@ class ItinerariosPar() {
     minimoEscalas
   }
 
-
-
-  def calcularDuracionVuelo(vuelo: Vuelo, aeropuertos: List[Aeropuerto]): Int = {
-    val aeropuertoOrigen = aeropuertos.find(_.Cod == vuelo.Org).get
-    val aeropuertoDestino = aeropuertos.find(_.Cod == vuelo.Dst).get
-
-    val salidaEnMinutos = (vuelo.HS * 60) + vuelo.MS
-    val llegadaEnMinutos = (vuelo.HL * 60) + vuelo.ML
-
-    val diferenciaGMT = (aeropuertoDestino.GMT - aeropuertoOrigen.GMT) / 100
-    val diferenciaGMTEnMinutos = (diferenciaGMT * 60).toInt
-
-    val duracionEnMinutos = llegadaEnMinutos - (salidaEnMinutos + diferenciaGMTEnMinutos)
-
-    if (duracionEnMinutos < 0) duracionEnMinutos + 1440 else duracionEnMinutos
-  }
-
-  def calcularTiempoTotal(itinerario: List[Vuelo], aeropuertos: List[Aeropuerto]): Int = {
-    itinerario.map(v => calcularDuracionVuelo(v, aeropuertos)).sum
-  }
-
   def itinerariosAirePar(vuelos: List[Vuelo], aeropuertos: List[Aeropuerto])(implicit ec: ExecutionContext): (String, String) => Future[List[List[Vuelo]]] = {
+    def calcularDuracionVuelo(vuelo: Vuelo, aeropuertos: List[Aeropuerto]): Int = {
+      val aeropuertoOrigen = aeropuertos.find(_.Cod == vuelo.Org).get
+      val aeropuertoDestino = aeropuertos.find(_.Cod == vuelo.Dst).get
+
+      val salidaEnMinutos = (vuelo.HS * 60) + vuelo.MS
+      val llegadaEnMinutos = (vuelo.HL * 60) + vuelo.ML
+
+      val diferenciaGMT = (aeropuertoDestino.GMT - aeropuertoOrigen.GMT) / 100
+      val diferenciaGMTEnMinutos = (diferenciaGMT * 60).toInt
+
+      val duracionEnMinutos = llegadaEnMinutos - (salidaEnMinutos + diferenciaGMTEnMinutos)
+
+      if (duracionEnMinutos < 0) duracionEnMinutos + 1440 else duracionEnMinutos
+  }
+
+    def calcularTiempoTotal(itinerario: List[Vuelo], aeropuertos: List[Aeropuerto]): Int = {
+      itinerario.map(v => calcularDuracionVuelo(v, aeropuertos)).sum
+    }
+    
     def minimoAirePar(cod1: String, cod2: String): Future[List[List[Vuelo]]] = {
       val itsAllFuture = Future {
         objitinerarioSeq.itinerarios(vuelos, aeropuertos)(cod1, cod2)
@@ -116,8 +151,6 @@ class ItinerariosPar() {
 
     minimoAirePar
   }
-
-
 
   def itinerariosSalidaPar(vuelos: List[Vuelo], aeropuertos: List[Aeropuerto])(implicit ec: ExecutionContext): (String, String, Int, Int) => Future[List[Vuelo]] = {
     def convertirAMinutos(hora: Int, minutos: Int): Int = {
@@ -144,5 +177,4 @@ class ItinerariosPar() {
 
     minimaSalidaPar
   }
-
 }

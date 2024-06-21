@@ -29,4 +29,8 @@ class Benchmarking {
     (seq, par)
   }
 
+  def mostrarPrueba(seq: Quantity[Double], par: Quantity[Double], funcion: String): String = {
+    val aceleracion = seq.value / par.value
+    s"Tiempo de $funcion: Secuencial: $seq, Paralelo: $par, Aceleracion: $aceleracion"
+  }
 }

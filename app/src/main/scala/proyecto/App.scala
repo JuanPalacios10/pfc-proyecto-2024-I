@@ -16,8 +16,9 @@ object App{
     val itinerarioSeq = new Itinerario()
     val itinerarioPar = new ItinerariosPar()
     val pruebas = new Benchmarking()
-    //val (seq, par) = pruebas.itinerarios(itinerarioSeq.itinerariosEscalas(vuelosC1, aeropuertos), itinerarioPar.itinerariosEscalasPar(vuelosC1, aeropuertos))
+    val (seq, par) = pruebas.itinerarios(itinerarioSeq.itinerariosEscalas(vuelosC1, aeropuertos), itinerarioPar.itinerariosEscalasPar(vuelosC1, aeropuertos))
 
     println(saludo())
+    println((seq,par))
   }
  }
